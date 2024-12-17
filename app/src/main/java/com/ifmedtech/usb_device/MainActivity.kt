@@ -1,9 +1,5 @@
 package com.ifmedtech.usb_device
 
-import android.app.PendingIntent
-import android.content.Context
-import android.content.Intent
-import android.hardware.usb.UsbManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -15,20 +11,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.hoho.android.usbserial.driver.UsbSerialDriver
-import com.hoho.android.usbserial.driver.UsbSerialPort
-import com.hoho.android.usbserial.driver.UsbSerialProber
-import kotlinx.coroutines.*
-import java.io.IOException
-import java.nio.charset.StandardCharsets
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-
-    private val ACTION_USB_PERMISSION = "com.ifmedtech.usb_device.USB_PERMISSION"
-    private var currentPort: UsbSerialPort? = null
-    private var readJob: Job? = null
+    private lateinit var usbHelper: USBSerialHelper
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        usbHelper = USBSerialHelper(this)
 
         setContent {
             USBSerialReaderApp()
@@ -38,14 +29,16 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun USBSerialReaderApp() {
-        val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
         val jsonData = remember { mutableStateListOf<String>() }
         val scope = rememberCoroutineScope()
+
         var isConnected by remember { mutableStateOf(false) }
+        var selectedDriver by remember { mutableStateOf<UsbSerialDriver?>(null) }
+        var drivers by remember { mutableStateOf(usbHelper.getConnectedDevices()) }
 
         Scaffold(
             topBar = {
-                TopAppBar(title = { Text("Arduino Serial Reader") })
+                TopAppBar(title = { Text("USB Serial Reader") })
             }
         ) { padding ->
             Column(
@@ -54,25 +47,59 @@ class MainActivity : ComponentActivity() {
                     .padding(padding)
                     .padding(16.dp)
             ) {
+                // Refresh Device List Button
+                Button(onClick = { drivers = usbHelper.getConnectedDevices() }) {
+                    Text("Refresh Devices")
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Dropdown for Device Selection
+                Text("Select Device:")
+                var expanded by remember { mutableStateOf(false) }
+                Box {
+                    Button(onClick = { expanded = true }) {
+                        Text(selectedDriver?.device?.deviceName ?: "Select USB Device")
+                    }
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        if (drivers.isEmpty()) {
+                            DropdownMenuItem(text = { Text("No devices found") }, onClick = {})
+                        } else {
+                            drivers.forEach { driver ->
+                                DropdownMenuItem(
+                                    text = { Text(driver.device.deviceName) },
+                                    onClick = {
+                                        selectedDriver = driver
+                                        expanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Connect and Disconnect Buttons
                 Row {
-                    // Start Connection Button
                     Button(
                         onClick = {
-                            scope.launch {
-                                isConnected = connectAndReadData(usbManager, jsonData)
+                            selectedDriver?.let { driver ->
+                                scope.launch {
+                                    isConnected = usbHelper.connectAndReadData(driver, jsonData)
+                                }
                             }
                         },
-                        enabled = !isConnected
+                        enabled = !isConnected && selectedDriver != null
                     ) {
                         Text("Connect")
                     }
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    // Disconnect Button
                     Button(
                         onClick = {
-                            disconnect(jsonData)
+                            usbHelper.disconnect(jsonData)
                             isConnected = false
                         },
                         enabled = isConnected
@@ -83,6 +110,7 @@ class MainActivity : ComponentActivity() {
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                // Data Display
                 Text("Incoming Data:", style = MaterialTheme.typography.headlineSmall)
 
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -90,96 +118,11 @@ class MainActivity : ComponentActivity() {
                         Text(
                             text = data,
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(vertical = 4.dp, horizontal = 10.dp).width(100.dp)
+                            modifier = Modifier.padding(vertical = 4.dp, horizontal = 10.dp)
                         )
                     }
                 }
             }
         }
     }
-
-    private suspend fun connectAndReadData(
-        usbManager: UsbManager,
-        jsonData: MutableList<String>
-    ): Boolean {
-        return withContext(Dispatchers.IO) {
-            val availableDrivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
-            if (availableDrivers.isEmpty()) {
-                jsonData.add("No USB devices detected.")
-                return@withContext false
-            }
-
-            val driver: UsbSerialDriver = availableDrivers[0]
-            val permissionIntent = PendingIntent.getBroadcast(
-                this@MainActivity, 0, Intent(ACTION_USB_PERMISSION), PendingIntent.FLAG_IMMUTABLE
-            )
-
-            if (!usbManager.hasPermission(driver.device)) {
-                usbManager.requestPermission(driver.device, permissionIntent)
-                return@withContext false
-            }
-
-            val connection = usbManager.openDevice(driver.device)
-            if (connection == null) {
-                jsonData.add("Unable to open USB connection.")
-                return@withContext false
-            }
-
-            currentPort = driver.ports[0]
-            try {
-                currentPort?.open(connection)
-                currentPort?.setParameters(
-                    115200,
-                    8,
-                    UsbSerialPort.STOPBITS_1,
-                    UsbSerialPort.PARITY_NONE
-                )
-
-                val buffer = ByteArray(1024)
-                jsonData.add("Connected. Reading data...")
-
-                readJob = CoroutineScope(Dispatchers.IO).launch {
-                    while (isActive) {
-                        try {
-                            val len = currentPort?.read(buffer, 1000) ?: break
-                            if (len > 0) {
-                                val data = String(buffer, 0, len, StandardCharsets.UTF_8).trim()
-                                if (data.isNotEmpty()) {
-                                    withContext(Dispatchers.Main) {
-                                        jsonData.add(data)
-                                    }
-                                }
-                            }
-                        } catch (e: IOException) {
-                            withContext(Dispatchers.Main) {
-                                jsonData.add("Disconnected: ${e.message}")
-                            }
-                            break
-                        }
-                    }
-
-                }
-            } catch (e: Exception) {
-                jsonData.add("Error: ${e.message}")
-                currentPort?.close()
-                return@withContext false
-            }
-            true
-        }
-    }
-
-    private fun disconnect(jsonData: MutableList<String>) {
-        readJob?.cancel()
-        readJob = null
-        try {
-            currentPort?.close()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        } finally {
-            currentPort = null
-        }
-        jsonData.clear()
-        jsonData.add("Disconnected.")
-    }
-
 }
