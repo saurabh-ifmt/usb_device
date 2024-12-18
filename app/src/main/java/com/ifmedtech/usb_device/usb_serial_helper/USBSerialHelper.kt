@@ -1,3 +1,26 @@
+/**
+ * USBSerialHelper.kt
+ *
+ * This class provides utility methods to handle USB serial connections in Android.
+ * It includes functionality for detecting connected USB devices, establishing a connection,
+ * reading data from a serial port, and handling disconnects.
+ *
+ * Author: IFMedTech
+ * Date: 18-12-2024
+ *
+ * Copyright © 2024 IFMedTech.
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License
+ * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and limitations under the License.
+ *
+ * Usage:
+ * 1. Use `getConnectedDevices` to list all connected USB devices.
+ * 2. Use `connect` to establish a connection to a specific USB device and handle incoming data.
+ * 3. Use `disconnect` to safely close the connection and stop data reading.
+ */
+
+
 package com.ifmedtech.usb_device
 
 import android.app.PendingIntent
@@ -52,7 +75,9 @@ class USBSerialHelper(private val context: Context) {
             currentPort = driver.ports[0]
             try {
                 currentPort?.open(connection)
-                currentPort?.setParameters(115200, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
+                currentPort?.setParameters(
+                    115200, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE
+                )
 
                 readJob = CoroutineScope(Dispatchers.IO).launch {
                     val buffer = ByteArray(1024)
