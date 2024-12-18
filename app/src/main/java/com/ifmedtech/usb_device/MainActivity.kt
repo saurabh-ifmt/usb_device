@@ -1,8 +1,12 @@
 package com.ifmedtech.usb_device
 
+import android.hardware.usb.UsbDevice
+import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,12 +19,42 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private lateinit var usbHelper: USBSerialHelper
+    private lateinit var usbPermissionHandler: USBPermissionHandler
 
+    @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Initialize USB Helper
         usbHelper = USBSerialHelper(this)
 
+        // Initialize USB Permission Handler
+        usbPermissionHandler = USBPermissionHandler(this, object : USBPermissionHandler.OnDeviceListener {
+            override fun onDeviceAttached(device: UsbDevice) {
+                // Handle device attached
+                Toast.makeText(this@MainActivity, "Device attached: ${device.deviceName}", Toast.LENGTH_SHORT).show()
+            }
+
+            override fun onDeviceDetached(device: UsbDevice) {
+                // Handle device detached
+                Toast.makeText(this@MainActivity, "Device detached: ${device.deviceName}", Toast.LENGTH_SHORT).show()
+            }
+
+            override fun onPermissionGranted(device: UsbDevice) {
+                // Permission granted, refresh the device list
+                Toast.makeText(this@MainActivity, "Permission granted for: ${device.deviceName}", Toast.LENGTH_SHORT).show()
+            }
+
+            override fun onDevicePermissionDenied(device: UsbDevice) {
+                // Handle permission denied
+                Toast.makeText(this@MainActivity, "Permission denied for: ${device.deviceName}", Toast.LENGTH_SHORT).show()
+            }
+        })
+
+        // Register Receiver for USB events
+        usbPermissionHandler.registerReceiver()
+
+        // Set Composable Content
         setContent {
             USBSerialReaderApp()
         }
@@ -80,7 +114,7 @@ class MainActivity : ComponentActivity() {
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Connect and Disconnect Buttons
+                // Read and Disconnect Buttons
                 Row {
                     Button(
                         onClick = {
@@ -92,7 +126,7 @@ class MainActivity : ComponentActivity() {
                         },
                         enabled = !isConnected && selectedDriver != null
                     ) {
-                        Text("Connect")
+                        Text("Read")
                     }
 
                     Spacer(modifier = Modifier.width(8.dp))
