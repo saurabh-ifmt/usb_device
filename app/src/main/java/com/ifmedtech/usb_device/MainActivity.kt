@@ -86,7 +86,19 @@ class MainActivity : ComponentActivity() {
                         onClick = {
                             selectedDriver?.let { driver ->
                                 scope.launch {
-                                    isConnected = usbHelper.connectAndReadData(driver, jsonData)
+                                    usbHelper.connect(
+                                        driver = selectedDriver!!,
+                                        onDataReceived = { buffer, length ->
+                                            isConnected = true
+                                            val data = String(buffer, 0, length)
+                                            println("Received: $data")
+                                            jsonData.add(data)
+                                        },
+                                        onError = { message ->
+                                            isConnected = false
+                                            println("Error: $message")
+                                        }
+                                    )
                                 }
                             }
                         },
@@ -99,7 +111,7 @@ class MainActivity : ComponentActivity() {
 
                     Button(
                         onClick = {
-                            usbHelper.disconnect(jsonData)
+                            usbHelper.disconnect()
                             isConnected = false
                         },
                         enabled = isConnected

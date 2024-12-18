@@ -3,14 +3,12 @@ package com.ifmedtech.usb_device
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import com.hoho.android.usbserial.driver.UsbSerialDriver
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import kotlinx.coroutines.*
 import java.io.IOException
-import java.nio.charset.StandardCharsets
 
 class USBSerialHelper(private val context: Context) {
 
@@ -19,7 +17,7 @@ class USBSerialHelper(private val context: Context) {
     private var readJob: Job? = null
 
     /**
-     * Get list of connected USB serial devices
+     * Get list of connected USB serial devices.
      */
     fun getConnectedDevices(): List<UsbSerialDriver> {
         val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
@@ -27,11 +25,12 @@ class USBSerialHelper(private val context: Context) {
     }
 
     /**
-     * Connect to a specific device and read incoming data
+     * Connect to a specific USB device and handle data through callbacks.
      */
-    suspend fun connectAndReadData(
+    suspend fun connect(
         driver: UsbSerialDriver,
-        jsonData: MutableList<String>
+        onDataReceived: (buffer: ByteArray, length: Int) -> Unit,
+        onError: (message: String) -> Unit
     ): Boolean {
         val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
         return withContext(Dispatchers.IO) {
@@ -46,7 +45,7 @@ class USBSerialHelper(private val context: Context) {
 
             val connection = usbManager.openDevice(driver.device)
             if (connection == null) {
-                jsonData.add("Unable to open USB connection.")
+                onError("Unable to open USB connection.")
                 return@withContext false
             }
 
@@ -55,31 +54,22 @@ class USBSerialHelper(private val context: Context) {
                 currentPort?.open(connection)
                 currentPort?.setParameters(115200, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
 
-                val buffer = ByteArray(1024)
-                jsonData.add("Connected to ${driver.device.deviceName}. Reading data...")
-
                 readJob = CoroutineScope(Dispatchers.IO).launch {
+                    val buffer = ByteArray(1024)
                     while (isActive) {
                         try {
-                            val len = currentPort?.read(buffer, 1) ?: break
+                            val len = currentPort?.read(buffer, 1000) ?: break
                             if (len > 0) {
-                                val data = String(buffer, 0, len, StandardCharsets.UTF_8).trim()
-                                if (data.isNotEmpty()) {
-                                    withContext(Dispatchers.Main) {
-                                        jsonData.add(data)
-                                    }
-                                }
+                                onDataReceived(buffer, len)
                             }
                         } catch (e: IOException) {
-                            withContext(Dispatchers.Main) {
-                                jsonData.add("Disconnected: ${e.message}")
-                            }
+                            onError("Disconnected: ${e.message}")
                             break
                         }
                     }
                 }
             } catch (e: Exception) {
-                jsonData.add("Error: ${e.message}")
+                onError("Error: ${e.message}")
                 currentPort?.close()
                 return@withContext false
             }
@@ -88,9 +78,9 @@ class USBSerialHelper(private val context: Context) {
     }
 
     /**
-     * Disconnect and stop reading
+     * Disconnect and stop reading.
      */
-    fun disconnect(jsonData: MutableList<String>) {
+    fun disconnect() {
         readJob?.cancel()
         readJob = null
         try {
@@ -100,7 +90,6 @@ class USBSerialHelper(private val context: Context) {
         } finally {
             currentPort = null
         }
-        jsonData.clear()
-        jsonData.add("Disconnected.")
     }
+
 }
