@@ -111,6 +111,16 @@ class MainActivity : ComponentActivity() {
 
                     Button(
                         onClick = {
+                            jsonData.clear()
+                        },
+                        enabled = isConnected
+                    ) {
+                        Text("Clear")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Button(
+                        onClick = {
                             usbHelper.disconnect()
                             isConnected = false
                         },

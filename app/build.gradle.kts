@@ -12,7 +12,7 @@ android {
         minSdk = 24
         targetSdk = 34
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -70,6 +70,12 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
     implementation(libs.androidx.navigation.compose)
-
 //    implementation ("androidx.lifecycle:lifecycle-runtime-ktx:2.6.1")
+}
+
+tasks.register("createJar", Jar::class) {
+    from(android.sourceSets["main"].java.srcDirs) // Include Kotlin and Java sources
+    archiveBaseName.set("usb_serial_helper") // Set the JAR file name
+    archiveVersion.set("1.0.0")              // Set the version
+    destinationDirectory.set(file("$buildDir/libs")) // Output directory
 }
